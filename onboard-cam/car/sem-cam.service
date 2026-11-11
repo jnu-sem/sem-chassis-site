@@ -1,0 +1,18 @@
+[Unit]
+Description=SEM onboard camera (MediaMTX: record + SRT uplink)
+# 네트워크를 기다리지 않는다: LTE 가 늦게 붙어도 녹화는 바로 시작하고, 송출은 붙는 대로 이어진다.
+After=local-fs.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/bin/mediamtx /etc/sem-cam/mediamtx.yml
+Restart=always
+RestartSec=2
+# 카메라 (libcamera) 와 /dev/dma_heap 접근
+SupplementaryGroups=video
+User=sem-cam
+WorkingDirectory=/var/lib/sem-cam
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

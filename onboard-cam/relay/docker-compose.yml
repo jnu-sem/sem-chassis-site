@@ -1,0 +1,31 @@
+# 중계 서버: MediaMTX (SRT 수신 · WebRTC 송출) + Caddy (HTTPS 인증서 자동)
+# 실행: relay/setup.sh 가 mediamtx.gen.yml · Caddyfile 환경을 만든 뒤  docker compose up -d
+#
+# WebRTC 는 UDP 포트를 직접 써야 하므로 둘 다 host 네트워크로 띄운다.
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.3
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx.gen.yml:/mediamtx.yml:ro
+      - ./recordings:/recordings
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: '3' }
+
+  caddy:
+    image: caddy:2
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      CAM_DOMAIN: ${CAM_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

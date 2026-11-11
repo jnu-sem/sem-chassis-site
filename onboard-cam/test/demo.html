@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Cam Test</title>
+<style>
+  :root { --bg: #F3F5F8; --fg: #1A2330; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0F161F; --fg: #E6EAF0; } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+  #live { max-width: 960px; margin: 0 auto; }
+</style>
+<script src="../web/mediamtx-reader.js"></script>
+<script src="../web/live-cam.js"></script>
+</head>
+<body>
+<!-- 시험용: ?api=<Worker 주소>&token=<세션 토큰> (실제 앱에서는 window.__SEM_AUTH__ 를 씀) -->
+<div id="live"></div>
+<script>
+  var q = new URLSearchParams(location.search);
+  window.__SEM_AUTH__ = { api: q.get('api') || '', token: q.get('token') || '' };
+  window.__states = [];
+  var root = document.getElementById('live');
+  root.addEventListener('semlivecam:state', function (e) { window.__states.push([Date.now(), e.detail.state]); });
+  window.__cam = SemLiveCam.mount(root, { renewBeforeSec: Number(q.get('lead') || 120) });
+</script>
+</body>
+</html>

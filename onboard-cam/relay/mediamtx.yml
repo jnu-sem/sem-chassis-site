@@ -1,0 +1,76 @@
+# SEM 온보드 카메라 — 중계 서버 (클라우드 VM) MediaMTX 설정
+#
+# 차량 --SRT(UDP 8890, 암호화)--> 이 서버 --WebRTC(WHEP)--> 팀원 브라우저 (SEM Workbench)
+#
+# 바꿔 넣을 값 (relay/setup.sh 가 relay/secrets.env 로 채움)
+#   __CAM_DOMAIN__      이 서버의 도메인 (Caddy 가 HTTPS 인증서를 받는 이름)
+#   __JWKS_URL__        Worker 의 공개 키 주소 (https://sem-ai.jnusem1.workers.dev/api/cam/jwks.json)
+#   __SRT_PASSPHRASE__  차량과 같은 SRT 암호 (10 ~ 79 자)
+#   __APP_ORIGIN__      Workbench 가 열리는 출처 (https://jnu-sem.github.io)
+#
+# 열어 둘 포트: TCP 80 · 443 (Caddy), UDP 8890 (SRT 수신), UDP 8189 · TCP 8189 (WebRTC 미디어)
+# 8889 (WHEP) 는 Caddy 가 HTTPS 로 감싸므로 바깥에 열지 않는다.
+
+logLevel: info
+logDestinations: [stdout]
+
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 1024        # LTE 지터로 몰려 오는 패킷 여유
+
+###############################################
+# 인증: 모든 동작 (송출 · 시청) 은 Worker 가 서명한 JWT 로만
+authMethod: jwt
+authJWTJWKS: __JWKS_URL__
+authJWTClaimKey: mediamtx_permissions
+authJWTIssuer: sem-workbench
+authJWTAudience: sem-cam
+authJWTExclude: []
+
+api: false
+metrics: false
+pprof: false
+playback: false
+
+###############################################
+# 쓰지 않는 프로토콜은 끈다
+rtsp: false
+rtmp: false
+hls: false
+moq: false
+
+###############################################
+# SRT: 차량에서 들어오는 송출
+srt: true
+srtAddress: :8890
+
+###############################################
+# WebRTC: 브라우저로 나가는 재생 (WHEP)
+webrtc: true
+webrtcAddress: 127.0.0.1:8889          # Caddy (443) 뒤에서만
+webrtcEncryption: false
+webrtcAllowOrigins: [__APP_ORIGIN__]
+webrtcTrustedProxies: [127.0.0.1]
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189           # UDP 가 막힌 학교 · 회사 망에서도 보이게 (ICE-TCP)
+webrtcIPsFromInterfaces: true
+webrtcAdditionalHosts: [__CAM_DOMAIN__]   # 클라우드 VM 은 대개 공인 IP 가 인터페이스에 없음 (1:1 NAT)
+webrtcICEServers2: []
+webrtcHandshakeTimeout: 10s
+
+###############################################
+paths:
+  # 정의한 경로 (cam) 말고는 송출 · 시청 모두 거절된다
+  cam:
+    source: publisher
+    srtPublishPassphrase: __SRT_PASSPHRASE__
+    overridePublisher: true            # LTE 가 끊겼다 붙으면 새 연결이 이전 연결을 대신한다
+    maxReaders: 60
+
+    # 차량이 박살 나도 남도록 중계 서버에도 녹화 (화질은 라이브와 같음)
+    record: true
+    recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f_%z
+    recordFormat: fmp4
+    recordPartDuration: 1s
+    recordSegmentDuration: 10m
+    recordDeleteAfter: 14d

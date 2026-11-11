@@ -1,0 +1,96 @@
+# SEM 온보드 카메라 — 차량 (라즈베리 파이 4) MediaMTX 설정
+#
+# 카메라 (CSI) → 하드웨어 H.264 인코딩 → ① 차량 안 녹화 (fMP4, 1 초 단위)
+#                                     ② SRT (암호화) 로 LTE 를 거쳐 중계 서버로 송출
+#
+# 바꿔 넣을 값 (car/setup.sh 가 car/secrets.env 로 채움)
+#   __RELAY_HOST__       중계 서버 도메인 (relay 의 CAM_DOMAIN)
+#   __PUBLISH_TOKEN__    worker/cam-keys.mjs publish-token 으로 만든 송출 토큰
+#   __SRT_PASSPHRASE__   중계 서버와 같은 SRT 암호
+#   __SRT_LATENCY_MS__   SRT 재전송 여유 (ms). LTE 기본 800. 화면이 자주 깨지면 늘리고, 지연을 줄이려면 줄인다.
+#   __REC_DIR__          녹화 폴더 (기본 /var/lib/sem-cam/rec)
+
+logLevel: info
+logDestinations: [stdout]
+
+# 송출 패킷 크기: SRT 1 패킷 = MPEG-TS 7 개 (1316 B) → IP 패킷 약 1360 B 로 LTE MTU 안에 들어간다.
+udpMaxPayloadSize: 1452
+
+###############################################
+# 인증: 이 파이에는 아무도 송출할 수 없다 (카메라가 직접 소스).
+# 보기는 파이 자신과, 피트에서 카메라 각도를 맞출 때 쓰는 같은 Wi-Fi · 이더넷 (192.168.x.x) 만.
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: [127.0.0.1, ::1]
+    permissions:
+      - action: read
+      - action: api
+  - user: any
+    pass:
+    ips: [192.168.0.0/16]
+    permissions:
+      - action: read
+
+api: true
+apiAddress: 127.0.0.1:9997   # 상태 확인 (car/health.sh)
+metrics: false
+pprof: false
+playback: false
+
+rtsp: false
+rtmp: false
+hls: false
+srt: false
+moq: false
+
+# 피트 노트북으로 미리보기: 파이와 같은 망에서 http://<파이 IP>:8889/cam
+webrtc: true
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: ""
+
+###############################################
+paths:
+  cam:
+    source: rpiCamera
+
+    # ---- 화질 ----
+    # 라이브와 녹화가 같은 인코딩을 쓴다. LTE 상향 속도를 대회장에서 먼저 재 보고 정한다.
+    #   여유 있음 (상향 10 Mbps 이상): 1920x1080 30fps 4 Mbps   ← 기본
+    #   붐빔 · 신호 약함            : 1280x720  30fps 2 Mbps
+    rpiCameraWidth: 1920
+    rpiCameraHeight: 1080
+    rpiCameraFPS: 30
+    rpiCameraCodec: auto            # 파이 4 = 하드웨어 H.264 (파이 5 는 하드웨어 인코더가 없어 CPU 로 인코딩)
+    rpiCameraBitrate: 4000000
+    rpiCameraIDRPeriod: 30          # 1 초마다 키프레임: 새로 들어온 시청자 · 패킷 손실 뒤 화면이 빨리 돌아온다
+    rpiCameraH264Profile: main      # B 프레임 없음. Firefox 에서 검은 화면이면 baseline 으로
+    rpiCameraH264Level: "4.1"
+
+    # ---- 진동 · 움직임 ----
+    rpiCameraExposure: short        # 셔터를 짧게: 진동 · 속도로 인한 번짐 줄이기
+    rpiCameraAfMode: manual         # 자동 초점은 진동에 계속 헤맨다 → 고정
+    rpiCameraLensPosition: 0.5      # 1 / 0.5 = 2 m 에 초점. 광각 렌즈라 약 1 m ~ 무한대가 선명. 카메라 모듈 3 전용
+    rpiCameraHDR: false             # 하늘 · 그늘 대비가 심하면 true (카메라 모듈 3, 최대 2304x1296)
+    rpiCameraHFlip: false           # 카메라를 거꾸로 달았으면 두 값 모두 true
+    rpiCameraVFlip: false
+
+    # 데이터 로거와 맞춰 볼 시각 표시 (필요하면 켬)
+    rpiCameraTextOverlayEnable: false
+    rpiCameraTextOverlay: "SEM %Y-%m-%d %H:%M:%S"
+
+    # ---- ① 차량 안 녹화 ----
+    # fMP4 를 1 초 조각으로 써서 킬 스위치 · 사고로 전원이 끊겨도 마지막 1 초만 잃는다.
+    record: true
+    recordPath: __REC_DIR__/%path/%Y-%m-%d_%H-%M-%S-%f_%z
+    recordFormat: fmp4
+    recordPartDuration: 1s
+    recordSegmentDuration: 10m
+    recordDeleteAfter: 0s           # 자동 삭제 안 함 (4 Mbps ≈ 시간당 1.8 GB). 대회 뒤 내려받고 지운다
+
+    # ---- ② 중계 서버로 송출 ----
+    # LTE 가 끊기면 5 초마다 다시 붙는다. 그동안에도 ① 녹화는 계속된다.
+    forward:
+      - dest: srt://__RELAY_HOST__:8890?streamid=publish:cam:car:__PUBLISH_TOKEN__&passphrase=__SRT_PASSPHRASE__&latency=__SRT_LATENCY_MS__

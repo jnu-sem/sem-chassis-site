@@ -1,0 +1,12 @@
+# HTTPS (Let's Encrypt 자동) → MediaMTX WHEP (127.0.0.1:8889)
+# Workbench 는 HTTPS 페이지라서 WHEP 주소도 반드시 HTTPS 여야 한다 (혼합 콘텐츠 차단).
+{$CAM_DOMAIN} {
+	# WHEP 만 통과 (/cam/whep 와 세션 주소 /cam/whep/<id>). MediaMTX 자체 웹 페이지 등은 막는다.
+	@whep path_regexp ^/[A-Za-z0-9_-]+/whep(/[A-Za-z0-9-]+)?$
+	handle @whep {
+		reverse_proxy 127.0.0.1:8889
+	}
+	handle {
+		respond 404
+	}
+}
